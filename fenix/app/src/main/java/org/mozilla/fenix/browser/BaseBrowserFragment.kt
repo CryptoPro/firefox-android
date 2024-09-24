@@ -133,6 +133,7 @@ import org.mozilla.fenix.IntentReceiverActivity
 import org.mozilla.fenix.NavGraphDirections
 import org.mozilla.fenix.OnBackLongPressedListener
 import org.mozilla.fenix.R
+import org.mozilla.fenix.TestQrActivity
 import org.mozilla.fenix.browser.browsingmode.BrowsingMode
 import org.mozilla.fenix.browser.readermode.DefaultReaderModeController
 import org.mozilla.fenix.components.FenixSnackbar
@@ -1916,8 +1917,10 @@ abstract class BaseBrowserFragment :
         }
 
         when {
-            requireContext().settings().shouldShowCameraPermissionPrompt ->
-                startQrActivityForResult.launch(Intent(requireContext(), QrActivity::class.java))
+            requireContext().settings().shouldShowCameraPermissionPrompt -> {
+                interactor.onCameraPermissionsNeeded()
+                view?.hideKeyboard()
+            }
             requireContext().isPermissionGranted(Manifest.permission.CAMERA) ->
                 startQrActivityForResult.launch(Intent(requireContext(), QrActivity::class.java))
             else -> {
