@@ -4,6 +4,7 @@
 
 package org.mozilla.fenix.browser
 
+import android.Manifest
 import android.app.KeyguardManager
 import android.content.Context
 import android.content.DialogInterface
@@ -72,6 +73,7 @@ import mozilla.components.feature.accounts.FxaCapability
 import mozilla.components.feature.accounts.FxaWebChannelFeature
 import mozilla.components.feature.app.links.AppLinksFeature
 import mozilla.components.feature.cades.plugin.CAdESPluginFeature
+import mozilla.components.feature.cades.plugin.CAdESPluginFeature.Companion.QR_REQUEST
 import mozilla.components.feature.contextmenu.ContextMenuCandidate
 import mozilla.components.feature.contextmenu.ContextMenuFeature
 import mozilla.components.feature.downloads.DownloadsFeature
@@ -91,6 +93,7 @@ import mozilla.components.feature.prompts.identitycredential.DialogColorsProvide
 import mozilla.components.feature.prompts.login.LoginDelegate
 import mozilla.components.feature.prompts.login.SuggestStrongPasswordDelegate
 import mozilla.components.feature.prompts.share.ShareDelegate
+import mozilla.components.feature.qr.QrFeature
 import mozilla.components.feature.readerview.ReaderViewFeature
 import mozilla.components.feature.search.SearchFeature
 import mozilla.components.feature.session.FullScreenFeature
@@ -111,6 +114,8 @@ import mozilla.components.support.base.feature.ActivityResultHandler
 import mozilla.components.support.base.feature.PermissionsFeature
 import mozilla.components.support.base.feature.UserInteractionHandler
 import mozilla.components.support.base.feature.ViewBoundFeatureWrapper
+import mozilla.components.support.ktx.android.content.hasCamera
+import mozilla.components.support.ktx.android.content.isPermissionGranted
 import mozilla.components.support.ktx.android.view.enterImmersiveMode
 import mozilla.components.support.ktx.android.view.exitImmersiveMode
 import mozilla.components.support.ktx.android.view.hideKeyboard
@@ -177,6 +182,8 @@ import org.mozilla.fenix.home.SharedViewModel
 import org.mozilla.fenix.library.bookmarks.BookmarksSharedViewModel
 import org.mozilla.fenix.perf.MarkersFragmentLifecycleCallbacks
 import org.mozilla.fenix.settings.SupportUtils
+import org.mozilla.fenix.settings.account.DefaultSyncController
+import org.mozilla.fenix.settings.account.DefaultSyncInteractor
 import org.mozilla.fenix.settings.biometric.BiometricPromptFeature
 import org.mozilla.fenix.tabstray.Page
 import org.mozilla.fenix.tabstray.ext.toDisplayTitle
@@ -184,6 +191,7 @@ import org.mozilla.fenix.theme.FirefoxTheme
 import org.mozilla.fenix.theme.ThemeManager
 import org.mozilla.fenix.utils.allowUndo
 import org.mozilla.fenix.wifi.SitePermissionsWifiIntegration
+import ru.cprocsp.qrscanner.QrActivity
 import java.lang.ref.WeakReference
 import kotlin.coroutines.cancellation.CancellationException
 import mozilla.components.ui.widgets.behavior.EngineViewClippingBehavior as OldEngineViewClippingBehavior
@@ -208,6 +216,7 @@ abstract class BaseBrowserFragment :
     private lateinit var browserFragmentStore: BrowserFragmentStore
     private lateinit var browserAnimator: BrowserAnimator
     private lateinit var startForResult: ActivityResultLauncher<Intent>
+    private lateinit var startQrActivityForResult: ActivityResultLauncher<Intent>
 
     private var _browserToolbarInteractor: BrowserToolbarInteractor? = null
     protected val browserToolbarInteractor: BrowserToolbarInteractor
@@ -268,6 +277,8 @@ abstract class BaseBrowserFragment :
 
     private var currentStartDownloadDialog: StartDownloadDialog? = null
 
+    private lateinit var interactor: DefaultSyncInteractor
+
     @CallSuper
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -314,12 +325,21 @@ abstract class BaseBrowserFragment :
             }
         }
 
+        startQrActivityForResult = registerForActivityResult { result ->
+            cAdESPluginIntegration.onActivityResult(QR_REQUEST, result.data, result.resultCode)
+        }
+
         // DO NOT MOVE ANYTHING BELOW THIS addMarker CALL!
         requireComponents.core.engine.profiler?.addMarker(
             MarkersFragmentLifecycleCallbacks.MARKER_NAME,
             profilerStartTime,
             "BaseBrowserFragment.onCreateView",
         )
+
+        interactor = DefaultSyncInteractor(
+            DefaultSyncController(activity = activity),
+        )
+
         return binding.root
     }
 
@@ -1077,7 +1097,9 @@ abstract class BaseBrowserFragment :
                 requireActivity(),
                 requireComponents.core.engine,
                 requireComponents.core.store,
-                ),
+                launchQr = ::launchQr,
+                onShowSnackbar = ::onShowSnackbar
+            ),
             owner = this,
             view = view,
         )
@@ -1885,6 +1907,38 @@ abstract class BaseBrowserFragment :
                     saveLoginJob?.cancel()
                 }
             }
+        }
+    }
+
+    private fun launchQr() {
+        if (!requireContext().hasCamera()) {
+            return
+        }
+
+        when {
+            requireContext().settings().shouldShowCameraPermissionPrompt ->
+                startQrActivityForResult.launch(Intent(requireContext(), QrActivity::class.java))
+            requireContext().isPermissionGranted(Manifest.permission.CAMERA) ->
+                startQrActivityForResult.launch(Intent(requireContext(), QrActivity::class.java))
+            else -> {
+                interactor.onCameraPermissionsNeeded()
+                view?.hideKeyboard()
+            }
+        }
+
+        requireContext().settings().setCameraPermissionNeededState = false
+    }
+
+    private fun onShowSnackbar(text: String, isError: Boolean) {
+        view?.let {
+            FenixSnackbar.make(
+                view = binding.dynamicSnackbarContainer,
+                duration = FenixSnackbar.LENGTH_LONG,
+                isDisplayedWithBrowserToolbar = true,
+                isError = isError
+            )
+                .setText(text)
+                .show()
         }
     }
 }
