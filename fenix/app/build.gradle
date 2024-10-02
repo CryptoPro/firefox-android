@@ -742,8 +742,7 @@ dependencies {
     lintChecks project(':tooling-lint')
 
     implementation(fileTree("../../android-components/components/feature/cades-plugin-sdk/android-native-csp/aar") {
-        include("csp-gui.aar", "QRScanner.aar", "URIManager.aar")
-    })
+        include("*.aar")})
 }
 
 protobuf {
